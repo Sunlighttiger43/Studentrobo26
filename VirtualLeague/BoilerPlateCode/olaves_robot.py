@@ -3,7 +3,7 @@ import math
 from math import pi, sin, cos, atan2, sqrt
 from time import time, struct_time
 from typing import List, Tuple, Optional, Union
-from VirtualLeague.BoilerPlateCode.pid import PIDController
+from pid import PIDController
 from zone_coords import zone_coords
 
 import numpy as np
