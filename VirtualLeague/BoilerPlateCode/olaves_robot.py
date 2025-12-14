@@ -658,7 +658,7 @@ class OlavesRobot(sr.Robot):
         """
         # logger.warning("get_pos method needs to be implemented.")
         # # TODO: Implement position estimation logic here
-        # raise NotImplementedError("get_pos method needs to be implemented.")
+        raise NotImplementedError("get_pos method needs to be implemented.")
 
         return self._encoder_pos()
 
