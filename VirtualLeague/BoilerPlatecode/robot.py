@@ -3,6 +3,7 @@
 import logging
 from states import main
 from olaves_robot import OlavesRobot
+from Backup import hardcode
 
 r = OlavesRobot()
 
@@ -27,10 +28,10 @@ def run_robot():
     This function configures logging and then starts the main state machine.
     """
 
-    print("Happy Birthday, Mr Savage!")
-    position = r.newPositioning()
-    print(position)
-    r.sleep(2)
+    try:
+        main()
+    except Exception:
+        hardcode()
 
     # configure_logging()
     # # Call main from states
