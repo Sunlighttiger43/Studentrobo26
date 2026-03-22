@@ -1,10 +1,9 @@
 # olaves_robot.py
-#import math
-#from math import pi, sin, cos, atan2, sqrt
+from math import pi, sin, cos, atan2, sqrt
 from time import time, struct_time
 from typing import List, Tuple, Optional, Union
-#from pid import PIDController
-from zone_coords import zone_coords
+from pid import PIDController
+#from zone_coords import zone_coords
 
 import numpy as np
 import sr.robot3 as sr
@@ -28,17 +27,31 @@ logger.addHandler(console)
 # logger.addHandler(file)
 
 
-class OlavesRobot(sr.Robot):
+class OlavesRobot:
     def __init__(self):
-        super().__init__(raw_ports=[("43439353536351815121", 115200)])
-        print(self.arduinos.keys())
+        self.robot = sr.Robot(raw_ports=[("43439353536351815121", 115200)])
+
+        # Expose commonly used robot attributes directly for convenience
+        self.zone = self.robot.zone
+        self.camera = self.robot.camera
+        self.motor_board = self.robot.motor_board
+        self.servo_board = self.robot.servo_board
+        self.raw_serial_devices = self.robot.raw_serial_devices
+
+        # Arduino access — expose whichever attribute the library uses
+        if hasattr(self.robot, 'arduino'):
+            self.arduino = self.robot.arduino
+        if hasattr(self.robot, 'arduinos'):
+            self.arduinos = self.robot.arduinos
+            print(self.arduinos.keys())
+
         logger.info("Initialising OlavesRobot")
         self.init_time: float = time()
         self._position: np.ndarray = [0, 0, 0]  # x, y, theta
         self._last_time_updated: float = 0  # seconds
         self.ticks = [0, 0]
 
-        self.zone_coords = zone_coords[self.zone]
+        #self.zone_coords = zone_coords[self.zone]
 
         self.pallet_dict = {
             0: list(i for i in range(100, 120)),
@@ -64,7 +77,7 @@ class OlavesRobot(sr.Robot):
 
         # We will load any external PID tunings here and initialise controllers for them
         # This allows for continuity between different testing runs
-        self._initialise_PID_controllers()
+       # self._initialise_PID_controllers()
 
         self.hardward_initialisation()
 
@@ -268,7 +281,7 @@ class OlavesRobot(sr.Robot):
             duration (float): The amount of time to sleep in seconds.
         """
         logger.info(f"[sleep] | Sleeping for {duration} seconds.")
-        super().sleep(duration)
+        self.robot.sleep(duration)
 
     def _turn(self, angle: float) -> None:
         """
@@ -372,24 +385,7 @@ class OlavesRobot(sr.Robot):
             f"[get_marker_by_id] Marker {marker_id} not visible initially. Initiating search..."
         )
 
-        # turned_angle = 0.0
-        # # Rotate in increments until we've turned the maximum allowed angle.
-        # while turned_angle < search_angle:
-        #     # Rotate the robot slightly; adjust the time (0.5 seconds here) as needed.
-        #     self._turn(pi / 16)
-        #     turned_angle += pi / 16
-
-        #     # Check the camera feed after the turn.
-        #     markers = [m for m in self.camera.see() if m.id == marker_id]
-        #     if markers:
-        #         marker = sorted(markers, key=lambda x: x.position.distance)[0]
-        #         logger.info(
-        #             f"[get_marker_by_id] Marker {marker_id} found after turning {turned_angle:.2f} radians."
-        #         )
-        #         self.power((0.0, 0.0), 0.3)  # Stop the robot.
-        #         return marker
-
-        # If the search completes without finding the marker, stop the robot.
+        # Stop the robot if not found
         self.power((0.0, 0.0), 0.0)
         logger.info(
             f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
@@ -441,22 +437,14 @@ class OlavesRobot(sr.Robot):
         """
         Re-orients the robot to face towards a specified marker.
 
-        **Note:** This method is not required for the virtual league and remains unimplemented.
-
-        Assumes that the robot is positioned directly in front of the marker.
-
         Parameters:
             marker_id (int): The unique identifier of the target marker.
-
-        Raises:
-            NotImplementedError: This method is intentionally unimplemented for the virtual league.
         """
         logger.info(f"[_turn_to_marker] | Turning to marker with id {marker_id}")
 
         ANGLE_TOLERANCE = 0.05
         ANGLE_TO_TIME = 0.1
 
-        # Use the get_marker_by_id function to get the initial marker object.
         marker = self.get_marker_by_id(marker_id)
         if not marker:
             logger.error(
@@ -474,18 +462,15 @@ class OlavesRobot(sr.Robot):
         max_lost_frames = 5
 
         while abs(angle_error) > ANGLE_TOLERANCE and iterations < 100:
-            # Calculate PID corrections
             angle_correction = self.isolated_angle_pid.getCorrection(angle_error)
 
             logger.debug(
                 f"[_turn_to_marker] | Angle Correction: {angle_correction:.3f}"
             )
 
-            # Convert corrections into left/right motor power
             left_power = -angle_correction
             right_power = +angle_correction
 
-            # Apply scaling with minimum power
             left_power, right_power = self._scale(
                 left_power, right_power, min_power=0.1, center=0
             )
@@ -494,17 +479,13 @@ class OlavesRobot(sr.Robot):
                 f"[_turn_to_marker] | Left Power: {left_power:.3f}, Right Power: {right_power:.3f}"
             )
 
-            # Determine dynamic time_step based on distance error
-            # This can help in smoother control as the robot approaches the target
             time_step = min(
                 ANGLE_TO_TIME,
                 max((init_angle - angle_error) * ANGLE_TO_TIME, ANGLE_TO_TIME * 0.25),
             )
 
-            # Apply motor power
             self.power((left_power, right_power), time_step, off=False)
 
-            # Update marker information
             marker = self.get_marker_by_id(marker_id)
             if not marker:
                 logger.warning(
@@ -532,7 +513,6 @@ class OlavesRobot(sr.Robot):
 
             iterations += 1
 
-        # Stop the robot once target is reached
         self.power((0.0, 0.0), 0.0)
         logger.debug("[_turn_to_marker] | Completed or aborted turning to marker.")
 
@@ -540,14 +520,9 @@ class OlavesRobot(sr.Robot):
         """
         Aligns the robot with the specified marker.
 
-        This method is not needed for the virtual league and is intentionally left unimplemented.
-
         Parameters:
             marker (sr.Marker): The marker object to align with.
             target_marker_pos (np.ndarray): The position of the target marker.
-
-        Raises:
-            NotImplementedError: Always raised as this method is not required for the virtual league.
         """
         target_position = (
             target_marker_pos[0] * cos(target_marker_pos[2]),
@@ -593,16 +568,13 @@ class OlavesRobot(sr.Robot):
             f"[get_marker_pos] | Target marker yaw: {marker_orientation}, Target marker distance: {marker_distance}"
         )
 
-        # Retrieves the robot current position to estimate where the marker is relative to it
-        robot_current_pos = (
-            self.get_pos()
-        )  # Here I am assuming that the angle is a bearing in radians
+        robot_current_pos = self.get_pos()
         robot_x, robot_y, robot_theta = (
             robot_current_pos[0],
             robot_current_pos[1],
             robot_current_pos[2],
         )
-        # Idea here is to utilise the cosine rule by making an isosceles triangle with the 'A' angle being marker orientation
+
         x_vector = (
             sqrt(
                 2 * marker_distance**2 - (marker_distance**2) * cos(marker_orientation)
@@ -613,7 +585,6 @@ class OlavesRobot(sr.Robot):
 
         logger.debug(f"[get_marker_pos] | x_vector: {x_vector}, y_vector: {y_vector}")
 
-        # Checks whether the actual marker is behind the robot or not, by looking at the orientation of the robot and check what the orientation of the marker is to add either negative x vector or positive x vector
         if (robot_theta > (1.5) * pi and robot_theta < 2 * pi) or (
             robot_theta > 0 and robot_theta < 0.5 * pi
         ):
@@ -644,20 +615,12 @@ class OlavesRobot(sr.Robot):
         """
         Estimates the robot's position and orientation.
 
-        If `test_markers` are provided, these marker observations are used instead of the camera input, facilitating testing.
-
         Parameters:
             test_markers (Optional[List[sr.Marker]]): A list of marker observations to use for position estimation. Defaults to None.
 
         Returns:
             Optional[Tuple[float, float, float]]: A tuple containing the (x, y) position and orientation (theta) of the robot.
-                                                 Returns None if insufficient markers are visible.
-
-        Raises:
-            NotImplementedError: Indicates that the method's implementation is pending.
         """
-        # logger.warning("get_pos method needs to be implemented.")
-        # # TODO: Implement position estimation logic here
         raise NotImplementedError("get_pos method needs to be implemented.")
 
         return self._encoder_pos()
@@ -665,8 +628,6 @@ class OlavesRobot(sr.Robot):
     def set_robot_orientation(self, target_orientation: float) -> None:
         """
         Sets the robot's orientation to a specified angle using PID control.
-
-        The method adjusts the robot's orientation from the current angle `r_theta` to the target angle `target_orientation`, minimising the error through PID control.
 
         Parameters:
             target_orientation (float): The target orientation angle in radians.
@@ -690,18 +651,15 @@ class OlavesRobot(sr.Robot):
         iterations = 0
 
         while abs(angle_error) > ANGLE_TOLERANCE and iterations < 100:
-            # Calculate PID corrections
             angle_correction = self.isolated_angle_pid.getCorrection(angle_error)
 
             logger.debug(
                 f"[set_robot_orientation] | Angle Correction: {angle_correction:.3f}"
             )
 
-            # Convert corrections into left/right motor power
             left_power = -angle_correction
             right_power = +angle_correction
 
-            # Apply scaling with minimum power
             left_power, right_power = self._scale(
                 left_power, right_power, min_power=0.1, center=0
             )
@@ -710,14 +668,11 @@ class OlavesRobot(sr.Robot):
                 f"[set_robot_orientation] | Left Power: {left_power:.3f}, Right Power: {right_power:.3f}"
             )
 
-            # Determine dynamic time_step based on distance error
-            # This can help in smoother control as the robot approaches the target
             time_step = min(
                 ANGLE_TO_TIME,
                 max((init_angle - angle_error) * ANGLE_TO_TIME, ANGLE_TO_TIME * 0.25),
             )
 
-            # Apply motor power
             self.power((left_power, right_power), time_step, off=False)
 
             r_x, r_y, r_theta = self.get_pos()
@@ -730,7 +685,6 @@ class OlavesRobot(sr.Robot):
 
             iterations += 1
 
-        # Stop the robot once target is reached
         self.power((0.0, 0.0), 0.0)
         logger.debug(
             "[set_robot_orientation] | Completed or aborted setting orientation."
@@ -765,18 +719,12 @@ class OlavesRobot(sr.Robot):
         """
         Controls the motors by setting their power levels.
 
-        Adjusts the power of the left and right motors for a specified duration. Optionally turns off the motors after the duration.
-
         Parameters:
             wheels (Tuple[float, float]):
                 - First element controls the left wheel's power.
                 - Second element controls the right wheel's power.
-                Positive values move the wheels forward, while negative values move them backward.
             duration (float): The duration in seconds for which the motors should run.
             off (bool, optional): Whether to turn off the motors after the duration. Defaults to True.
-
-        Raises:
-            ValueError: If wheel power values are outside the allowable range after correction.
         """
         corrected_wheels = self._wonky_wheels_correction(wheels)
         logger.debug(
@@ -798,8 +746,6 @@ class OlavesRobot(sr.Robot):
     def _clamp(value: float, min_value: float = -1.0, max_value: float = 1.0) -> float:
         """
         Clamps a value to the specified range.
-
-        Ensures that the provided value does not exceed the defined minimum and maximum boundaries.
 
         Parameters:
             value (float): The value to clamp.
@@ -824,24 +770,15 @@ class OlavesRobot(sr.Robot):
         """
         Scales the two motor power values to ensure balanced and stable movement.
 
-        The scaling process adjusts the power values to meet the following criteria:
-        1. The population standard deviation between the two values does not exceed `max_std`.
-        2. The mean of the two values is shifted to the specified `center` value.
-        3. The final values are clamped within the range [-1.0, 1.0] to adhere to motor power limits.
-        4. Applies a minimum power threshold (`min_power`) to overcome static friction and reduce jitter.
-
         Parameters:
             left (float): Desired power level for the left motor. Range: [-1.0, 1.0].
             right (float): Desired power level for the right motor. Range: [-1.0, 1.0].
             max_std (float, optional): Maximum allowed standard deviation between motor powers. Defaults to 3.0.
             center (float, optional): Target mean value for the motor powers after scaling. Defaults to 0.45.
-            min_power (float, optional): Minimum non-zero power to apply to each motor to ensure movement. Defaults to 0.15.
+            min_power (float, optional): Minimum non-zero power to apply to each motor. Defaults to 0.15.
 
         Returns:
-            Tuple[float, float]: The scaled (left, right) motor power values, each within [-1.0, 1.0].
-
-        Raises:
-            ValueError: If `min_power` is negative or exceeds motor power limits.
+            Tuple[float, float]: The scaled (left, right) motor power values.
         """
         logger.info(
             f"[_scale] | Scaling motor powers around {center}, with a max spread of {max_std}. Left Power: {left}, Right Power: {right}"
@@ -852,28 +789,8 @@ class OlavesRobot(sr.Robot):
             )
             raise ValueError("min_power must be between 0 and 1.")
 
-        # # # Compute mean
-        # # mu = (left + right) / 2.0
-
-        # # # Compute population standard deviation for two points
-        # # sd = sqrt(((left - mu) ** 2 + (right - mu) ** 2) / 2.0)
-
-        # # # Scale down if std exceeds max_std
-        # # if sd > max_std and sd > 1e-9:
-        # #     scale_factor = max_std / sd
-        # #     left = mu + scale_factor * (left - mu)
-        # #     right = mu + scale_factor * (right - mu)
-
-        # # # Shift mean to center
-        # # new_mu = (left + right) / 2.0
-        # # shift = center - new_mu
-        # # left += shift
-        # # right += shift
-
-        # Apply minimum power threshold
         left, right = self._apply_min_power(left, right, min_power)
 
-        # Clamp to [-1.0, 1.0]
         left = self._clamp(left, -1.0, 1.0)
         right = self._clamp(right, -1.0, 1.0)
 
@@ -898,15 +815,12 @@ class OlavesRobot(sr.Robot):
         )
 
         def apply_min(val):
-            # If turning on the spot (opposite signs), don't forcibly push them in same direction
             if 0.0 < val < min_power:
                 return min_power
             elif -min_power < val < 0.0:
                 return -min_power
             return val
 
-        # If signs of left and right differ, it's likely a turn.
-        # We'll apply a smaller threshold so it can spin in place:
         if left * right < 0:
             # turning case
             turning_min = min_power
@@ -923,7 +837,6 @@ class OlavesRobot(sr.Robot):
 
             return (left_adj, right_adj)
         else:
-            # normal forward/back
             left = apply_min(left)
             right = apply_min(right)
             return (left, right)
@@ -934,8 +847,6 @@ class OlavesRobot(sr.Robot):
         """
         Applies correction to the wheel power values.
 
-        This method can be customised to correct any discrepancies in wheel behavior. Currently reserved for physical robot implementations.
-
         For the virtual league, no correction is applied.
 
         Parameters:
@@ -943,14 +854,11 @@ class OlavesRobot(sr.Robot):
 
         Returns:
             Tuple[float, float]: The corrected wheel power values.
-
-        Raises:
-            NotImplementedError: Indicates that wheel correction is not implemented for the virtual league.
         """
         logger.warning(
             "_wonky_wheels_correction is not implemented for the virtual league."
         )
-        return wheels  # Assuming no correction needed in simulation
+        return wheels
 
     def zone_pallets(self) -> List[sr.marker]:
         return self.pallet_dict[self.zone]
@@ -968,23 +876,11 @@ class OlavesRobot(sr.Robot):
         """
         Determines the type of a marker based on its ID.
 
-        Categorises markers into predefined types such as walls, pallets, and highrise markers based on their ID ranges.
-
         Parameters:
             marker (Union[sr.Marker, int]): The marker object or raw marker ID integer.
 
         Returns:
-            Optional[str]: The type of marker, which can be one of the following:
-                - 'wall' (IDs 0-27)
-                - 'pallet0' (IDs 100-119)
-                - 'pallet1' (IDs 120-139)
-                - 'pallet2' (IDs 140-159)
-                - 'pallet3' (IDs 160-179)
-                - 'highrise' (IDs 195-199)
-                - None if the marker ID does not match any known type.
-
-        Raises:
-            ValueError: If the provided marker is neither an sr.Marker instance nor an integer.
+            Optional[str]: The type of marker ('wall', 'pallet0'-'pallet3', 'highrise', or None).
         """
         logger.info(
             f"[get_marker_type] | Getting the marker type of marker {marker.id}"
@@ -1018,14 +914,11 @@ class OlavesRobot(sr.Robot):
 
     def detect_highrise_pallets(self):
         """
-        Determines the amount of high rise pallets the robot can see for our team
-        We do this by checking if the pitch angle and if it is tilted up (ie less than 0 radians)
-        Parameters:
-            None
-        Output:
-            list output [numberofhighrises, onfloormarkers]
-        """
+        Determines the amount of high rise pallets the robot can see for our team.
 
+        Returns:
+            list: [number_of_highrises, on_floor_markers]
+        """
         logger.info(
             f"[detect_highrise_pallets] | Determining the number of high rises from our team"
         )
@@ -1047,13 +940,8 @@ class OlavesRobot(sr.Robot):
         """
         Moves the robot to a specified marker using PID controllers.
 
-        When finishes, assumes that the marker has already been found
-
         Parameters:
             marker_id (int): The ID of the target marker.
-
-        Raises:
-            "MarkerNotFound" : Exception when the specified marker is not found by the robot
         """
         logger.info(f"[move_to_marker] | Moving to Marker: {marker_id}")
 
@@ -1066,7 +954,6 @@ class OlavesRobot(sr.Robot):
             logger.error(
                 f"[move_to_marker] Marker {marker_id} not found. Aborting turn."
             )
-            # raise Exception("MarkerNotFound")
             return
 
         init_dist = marker.position.distance / 1000.0  # Convert mm to meters
@@ -1087,7 +974,6 @@ class OlavesRobot(sr.Robot):
             and iterations < 1000
             and consecutive_lost_frames < max_lost_frames
         ):
-            # Calculate PID corrections
             dist_correction = -self.move_dist_pid.getCorrection(dist_error)
             angle_correction = self.move_angle_pid.getCorrection(angle_error)
 
@@ -1095,11 +981,9 @@ class OlavesRobot(sr.Robot):
                 f"[move_to_marker] | Distance Correction: {dist_correction:.3f}, Angle Correction: {angle_correction:.3f}"
             )
 
-            # Convert corrections into left/right motor power
             left_power = dist_correction - angle_correction
             right_power = dist_correction + angle_correction
 
-            # Apply scaling with minimum power
             left_power, right_power = self._scale(
                 left_power, right_power, min_power=0.15
             )
@@ -1108,17 +992,13 @@ class OlavesRobot(sr.Robot):
                 f"[move_to_marker] | Left Power: {left_power:.3f}, Right Power: {right_power:.3f}"
             )
 
-            # Determine dynamic time_step based on distance error
-            # This can help in smoother control as the robot approaches the target
             time_step = min(
                 DIST_TO_TIME,
                 max((init_dist - dist_error) * DIST_TO_TIME, DIST_TO_TIME * 0.1),
             )
 
-            # Apply motor power
             self.power((left_power, right_power), time_step, off=False)
 
-            # Update marker information
             marker = self.get_marker_by_id(marker_id)
             if not marker:
                 if consecutive_lost_frames >= max_lost_frames:
@@ -1127,7 +1007,6 @@ class OlavesRobot(sr.Robot):
                     )
                     break
                 if dist_error <= 3 * DIST_TOLERANCE:
-                    # Assume the marker is most likely collected already
                     break
                 logger.warning(
                     f"[move_to_marker] | Lost marker {marker_id}. Conducting search."
@@ -1148,9 +1027,7 @@ class OlavesRobot(sr.Robot):
 
     def _move_to_marker_finalisation(self) -> None:
         """
-        Finalises the motion for move_to_marker, llowing the robot to close the distance without the use of the camera to determine distance.
-
-        Uses ultrasound sensor to determine distance from marker
+        Finalises the motion for move_to_marker using the ultrasound sensor.
         """
         logger.info(
             f"[_move_to_marker_finalisation] | Minimising distance between robot and marker in the absence of camera feedback"
@@ -1166,10 +1043,6 @@ class OlavesRobot(sr.Robot):
         logger.debug(
             f"[_move_to_marker_finalisation] | Initial Distance Error: {dist_error:.3f} m"
         )
-
-        # TODO: Add error exception handling here to check that the ultrasound reading
-        # isn't invalid (e.g. reading of 2m is obviously not a marker that can be reached
-        # reasonably using ultrasound)
 
         iterations = 0
         while dist_error > DIST_TOLERANCE and iterations != 100:
@@ -1188,15 +1061,10 @@ class OlavesRobot(sr.Robot):
 
     def move_pos(self, target_position: Tuple[float, float]) -> None:
         """
-        Moves the robot to a specific (x, y) position using PID controllers for angle and distance.
-
-        The method calculates the required adjustments in motor power to navigate the robot to the desired position accurately.
+        Moves the robot to a specific (x, y) position using PID controllers.
 
         Parameters:
             target_position (Tuple[float, float]): The (x, y) coordinates to move the robot to.
-
-        Raises:
-            NotImplementedError: Indicates that the method's implementation is pending.
         """
         logger.info(f"[move_pos] | Moving to position {target_position}.")
 
@@ -1212,10 +1080,9 @@ class OlavesRobot(sr.Robot):
         angle = atan2(destination_vector[1], destination_vector[0])
         distance = np.linalg.norm(destination_vector)
 
-        init_dist = distance  # Convert mm to meters
+        init_dist = distance
         dist_error = init_dist
 
-        # Normalising angle error
         angle_error = angle - phi
         angle_error = (angle_error + pi) % (2 * pi) - pi
 
@@ -1228,7 +1095,6 @@ class OlavesRobot(sr.Robot):
         while (
             dist_error > DIST_TOLERANCE or abs(angle_error) > ANGLE_TOLERANCE
         ) and iterations != 1000:
-            # Calculate PID corrections
             dist_correction = -self.move_dist_pid.getCorrection(dist_error)
             angle_correction = self.move_angle_pid.getCorrection(angle_error)
 
@@ -1236,11 +1102,9 @@ class OlavesRobot(sr.Robot):
                 f"[move_pos] | Distance Correction: {dist_correction:.3f}, Angle Correction: {angle_correction:.3f}"
             )
 
-            # Convert corrections into left/right motor power
             left_power = dist_correction - angle_correction
             right_power = dist_correction + angle_correction
 
-            # Apply scaling with minimum power
             left_power, right_power = self._scale(
                 left_power, right_power, min_power=0.15
             )
@@ -1249,14 +1113,11 @@ class OlavesRobot(sr.Robot):
                 f"[move_pos] | Left Power: {left_power:.3f}, Right Power: {right_power:.3f}"
             )
 
-            # Determine dynamic time_step based on distance error
-            # This can help in smoother control as the robot approaches the target
             time_step = min(
                 max((dist_error / init_dist) * DIST_TO_TIME, 0.5 * DIST_TO_TIME),
                 DIST_TO_TIME,
             )
 
-            # Apply motor power
             self.power((left_power, right_power), time_step, off=False)
 
             current_position = self.get_pos()
@@ -1265,7 +1126,6 @@ class OlavesRobot(sr.Robot):
 
             destination_vector = np.array(target_position) - current_coords
             dist_error = np.linalg.norm(destination_vector)
-            # Recompute angle error
             desired_angle = atan2(destination_vector[1], destination_vector[0])
             angle_error = desired_angle - phi
             angle_error = (angle_error + pi) % (2 * pi) - pi
@@ -1276,22 +1136,17 @@ class OlavesRobot(sr.Robot):
 
             iterations += 1
 
-        # Stop the robot once target is reached
         self.power((0.0, 0.0), 0.0)
         logger.info("Position Reached")
 
     def camera_pos(self) -> Optional[Tuple[float, float]]:
         """
-        Estimate position from camera alone, if we see known field markers with known global positions.
+        Estimate position from camera alone using known field markers.
 
         DOES NOT WORK YET, DON'T USE
-
-        Returns:
-            (x, y) or None if we cannot see any known marker or have no knowledge of marker positions.
         """
         logger.info(f"[camera_pos] | Using camera to find location")
         markers = self.camera.see()
-        # Dictionary of known markers to positions:
         zone_coordinates = self.zone_coords
 
         visible_known_markers = [m for m in markers if m.id in range(27)]
@@ -1300,20 +1155,17 @@ class OlavesRobot(sr.Robot):
         if len(visible_known_markers) < 2:
             return self._encoder_pos()
 
-        # This method uses two of the markers and uses a predetermined formula with proof already figured out
         marker = sorted(visible_known_markers, key=lambda x: x.position.distance)[0]
-        # Let a = first marker x position, b = first marker y position, c = second marker x position, d = second marker y position
         a, b, c, d = marker[0][1], marker[0][2], marker[1][1], marker[1][2]
-        # Let theta and alpha also be angles for first marker and second marker respectively - need to check if MARKER ID IS THIRD POSITION
         theta, alpha = marker.orientation.yaw(marker[0][0]), marker.orientation.yaw(
             marker[1][0]
         )
 
+        import math
         x = ((math.tan(theta) * a) + b - a + (math.tan(alpha) * c)) / (
             (math.tan(theta)) + (math.tan(alpha))
         )
         y = math.tan(theta) * x - math.tan(theta) * a + b
-        # Coordinates returned back - this was proved GEOMETRICALLY, See AARIT for Proof
         return (x, y)
 
     def pick_hold_box(self):
@@ -1321,12 +1173,6 @@ class OlavesRobot(sr.Robot):
         Picks up and holds the box.
 
         Assumes that the box is directly ahead of the robot.
-
-        This method ensures the robot returns to its initial starting point and engages the servo to pick up the box.
-        It activates the power board to secure the box and logs the action.
-
-        Raises:
-            RuntimeError: If the servo or power board fails to engage.
         """
         logger.info(f"[pick_hold_box]: Picking up box.")
 
