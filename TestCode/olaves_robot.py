@@ -35,7 +35,7 @@ class OlavesRobot:
         self.zone = self.robot.zone
         self.camera = self.robot.camera
         self.motor_board = self.robot.motor_board
-        self.servo_board = self.robot.servo_board
+        #self.servo_board = self.robot.servo_board
         self.raw_serial_devices = self.robot.raw_serial_devices
 
         # Arduino access — expose whichever attribute the library uses
