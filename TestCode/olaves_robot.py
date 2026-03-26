@@ -51,21 +51,12 @@ class OlavesRobot:
         self._last_time_updated: float = 0  # seconds
         self.ticks = [0, 0]
 
-        #self.zone_coords = zone_coords[self.zone]
-
-        self.pallet_dict = {
-            0: list(i for i in range(100, 120)),
-            1: list(i for i in range(120, 140)),
-            2: list(i for i in range(140, 160)),
-            3: list(i for i in range(160, 180)),
+        self.types_of_markers = {"wall": list(i for i in range(0, 20)),
+            "acidic": list(i for i in range(100, 140)),
+            "basic": list(i for i in range(140, 180)),
         }
 
-        self.hirise_dict = {
-            0: 195,
-            1: 196,
-            2: 197,
-            3: 198,
-        }
+        
 
         # Might prove helpful to distinguish between physical robot and simulated robot
         # for testing

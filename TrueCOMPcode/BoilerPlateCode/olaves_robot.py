@@ -390,10 +390,10 @@ class OlavesRobot(sr.Robot):
         #         return marker
 
         # If the search completes without finding the marker, stop the robot.
-        self.power((0.0, 0.0), 0.0)
-        logger.info(
-            f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
-        )
+        #self.power((0.0, 0.0), 0.0)
+        #logger.info(
+        #    f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
+        #)
         return None
 
     def get_marker_by_idrange(
