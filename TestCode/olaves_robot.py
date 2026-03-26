@@ -423,6 +423,24 @@ class OlavesRobot:
         # If the search completes without finding the marker, stop the robot.
         self.power((0.0, 0.0), 0.0)
         return None
+    
+    def WallMarkerzone(self, zone: int) -> list:
+        '''
+        Figures out which markers are in its zone (may need to be updated every year)
+        Parameters:
+            zone (int): The zone the robot is in, from 0 to 3
+        '''
+        if zone == 0:
+            return [0,19,18]
+        elif zone == 1:
+            return [3,4,5]
+        elif zone == 2:
+            return [8,9,10]
+        elif zone == 3:
+            return [13,14,15]
+        else:
+            logger.error(f"Invalid zone: {zone}. Zone must be between 0 and 3.")
+            raise ValueError("Zone must be an integer between 0 and 3 inclusive.")
 
     def _turn_to_marker(self, marker_id: int) -> None:
         """
@@ -526,160 +544,6 @@ class OlavesRobot:
             target_orientation=self._restrict_angle_range(target_marker_pos[2] + pi)
         )
 
-    def get_marker_pos(self, marker_id: int) -> Tuple[float, float]:
-        # NEEDS TO BE TESTED - IMPLEMENTED BY AARIT
-        """
-        Calculates the absolute position of a marker based on its relative position to the robot.
-
-        Parameters:
-            marker_id (int): The ID of the marker.
-
-        Returns:
-            Tuple[float, float, float]: A tuple containing the (x, y, theta) coordinates and orientation of the marker.
-
-        Raises:
-            ValueError: If the marker with the specified ID is not found.
-        """
-        logger.info(
-            f"[get_marker_pos] | Calculating position for marker ID {marker_id}."
-        )
-
-        marker = self.get_marker_by_id(marker_id=marker_id)
-        if not marker:
-            logger.error(
-                f"[get_marker_pos] Marker {marker_id} not found. Aborting localisation."
-            )
-            return
-
-        marker_orientation = marker.orientation.yaw
-        marker_distance = marker.position.distance
-        marker_horizontal_angle = marker.position.horizontal_angle
-
-        logger.debug(
-            f"[get_marker_pos] | Target marker yaw: {marker_orientation}, Target marker distance: {marker_distance}"
-        )
-
-        robot_current_pos = self.get_pos()
-        robot_x, robot_y, robot_theta = (
-            robot_current_pos[0],
-            robot_current_pos[1],
-            robot_current_pos[2],
-        )
-
-        x_vector = (
-            sqrt(
-                2 * marker_distance**2 - (marker_distance**2) * cos(marker_orientation)
-            )
-            / 2
-        )
-        y_vector = sqrt((marker_distance**2) - (x_vector**2))
-
-        logger.debug(f"[get_marker_pos] | x_vector: {x_vector}, y_vector: {y_vector}")
-
-        if (robot_theta > (1.5) * pi and robot_theta < 2 * pi) or (
-            robot_theta > 0 and robot_theta < 0.5 * pi
-        ):
-            if marker_orientation > 0:
-                x_coord = robot_x - x_vector
-                y_coord = y_vector + robot_y
-            else:
-                x_coord = x_vector + robot_x
-                y_coord = y_vector + robot_y
-        else:
-            if marker_orientation > 0:
-                x_coord = robot_x + x_vector
-                y_coord = y_vector - robot_y
-            else:
-                x_coord = x_vector - robot_x
-                y_coord = y_vector - robot_y
-
-        m_theta = pi + robot_theta + marker_orientation - marker_horizontal_angle
-
-        logger.debug(
-            f"[get_marker_pos] | Marker coordinates: {(x_coord, y_coord)}, Marker orientation: {m_theta}"
-        )
-        return (x_coord, y_coord, m_theta)
-
-    def get_pos(
-        self, test_markers: Optional[List[sr.marker]] = None
-    ) -> Optional[Tuple[float, float, float]]:
-        """
-        Estimates the robot's position and orientation.
-
-        Parameters:
-            test_markers (Optional[List[sr.Marker]]): A list of marker observations to use for position estimation. Defaults to None.
-
-        Returns:
-            Optional[Tuple[float, float, float]]: A tuple containing the (x, y) position and orientation (theta) of the robot.
-        """
-        raise NotImplementedError("get_pos method needs to be implemented.")
-
-        return self._encoder_pos()
-
-    def set_robot_orientation(self, target_orientation: float) -> None:
-        """
-        Sets the robot's orientation to a specified angle using PID control.
-
-        Parameters:
-            target_orientation (float): The target orientation angle in radians.
-        """
-        logger.info(
-            f"[set_robot_orientation] | Setting robot orientation to {target_orientation}"
-        )
-
-        ANGLE_TOLERANCE = 0.05
-        ANGLE_TO_TIME = 0.1
-
-        r_x, r_y, r_theta = self._encoder_pos()
-
-        init_angle = target_orientation - r_theta
-        angle_error = init_angle
-
-        logger.debug(
-            f"[set_robot_orientation] | Initial Angle Error: {init_angle:.3f} rad"
-        )
-
-        iterations = 0
-
-        while abs(angle_error) > ANGLE_TOLERANCE and iterations < 100:
-            angle_correction = self.isolated_angle_pid.getCorrection(angle_error)
-
-            logger.debug(
-                f"[set_robot_orientation] | Angle Correction: {angle_correction:.3f}"
-            )
-
-            left_power = -angle_correction
-            right_power = +angle_correction
-
-            left_power, right_power = self._scale(
-                left_power, right_power, min_power=0.1, center=0
-            )
-
-            logger.debug(
-                f"[set_robot_orientation] | Left Power: {left_power:.3f}, Right Power: {right_power:.3f}"
-            )
-
-            time_step = min(
-                ANGLE_TO_TIME,
-                max((init_angle - angle_error) * ANGLE_TO_TIME, ANGLE_TO_TIME * 0.25),
-            )
-
-            self.power((left_power, right_power), time_step, off=False)
-
-            r_x, r_y, r_theta = self.get_pos()
-
-            angle_error = target_orientation - r_theta
-
-            logger.debug(
-                f"[set_robot_orientation] | Updated Angle Error: {angle_error:.3f} rad"
-            )
-
-            iterations += 1
-
-        self.power((0.0, 0.0), 0.0)
-        logger.debug(
-            "[set_robot_orientation] | Completed or aborted setting orientation."
-        )
 
     @staticmethod
     def _restrict_angle_range(theta: float) -> float:

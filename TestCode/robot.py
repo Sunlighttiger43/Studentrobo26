@@ -1,6 +1,6 @@
 #import logging
 from olaves_robot import OlavesRobot
-#from math import pi
+from math import pi
 
 r = OlavesRobot()
 
@@ -21,9 +21,32 @@ def run_robot():
     """
     This is to test if power can run in the robot.
     """
+    wallMarkers = r.WallMarkerzone(r.zone)
+    get_AcidBlock()
+    r._turn(pi)
+    go_to_wallmarker()
     
-    r._move(10)
+    
+    
 
+def get_AcidBlock() -> None:
+    """
+    This is to identify the acid blocks.
+    """
+    acid = r.get_marker_by_idrange(r.types_of_markers["acidic"])
+    if len(acid)>1:
+        acid = acid[0]
+    r.move_to_marker(acid)
+    r.pick_hold_box()
 
+def go_to_wallmarker() -> None:
+    '''
+    This is for the robot to move to the wall marker and drop the acid block.
+    '''
+    wall = r.get_marker_by_idrange(r.types_of_markers["wall"])
+    if len(wall)>1:
+        wall = wall[0]
+    r.move_to_marker(wall)
+    r.drop_box()
 
 run_robot()
