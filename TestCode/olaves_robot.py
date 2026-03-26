@@ -37,6 +37,7 @@ class OlavesRobot:
         self.motor_board = self.robot.motor_board
         #self.servo_board = self.robot.servo_board
         self.raw_serial_devices = self.robot.raw_serial_devices
+        self._initialise_PID_controllers()
 
         # Arduino access — expose whichever attribute the library uses
         if hasattr(self.robot, 'arduino'):
