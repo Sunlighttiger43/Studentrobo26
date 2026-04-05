@@ -14,20 +14,36 @@ Class defining:
 
 def _load_pid_tunings_from_file()
 
+    > [!IMPORTANT]   Not a function to be used in robot.py
     Outputs dictionary
     Tunings exists as a json file in the usb stick
     Edit those to figure out which pid tuning values makes the robot move straight
 
 def _initialise_PID_controllers()
+    > [!IMPORTANT]   Not a function to be used in robot.py
+    
     Outputs nothing
     does what it says it does
 
 def get_comp_time()
+
     Outputs float, which is time in seconds
     A way to help strategisation
 
 def get_motor_ticks()
-    # Not a function to be used in robot.py
+    > [!IMPORTANT]   Not a function to be used in robot.py
+
+    Outputs tuple of the ticks of the left and right wheel (using ruggeduino)
+
+def _update_time()
+
+    Returns time more formally in a format of mins and seconds (may be useful instead of get_comp_time but doesnt really matter)
+
+def _encoder_pos()
+    > [!IMPORTANT]   Not a function to be used in robot.py
+
+    Outputs an array containing the estimated position of robot in terms of x, y and theta
+
 
 > [!IMPORTANT]  
 > ![spin-record](https://github.com/user-attachments/assets/7d535723-68db-4271-adf9-a4d496c18155)
