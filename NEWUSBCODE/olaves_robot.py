@@ -64,12 +64,13 @@ class OlavesRobot:
         self.is_physical_robot = True
 
         # Setting servo to default position for simulated robot:
-        if not self.is_physical_robot:
+        servos_installed = False
+        if not self.is_physical_robot and servos_installed:
             self.servo_board.servos[0].position = 1
 
         # We will load any external PID tunings here and initialise controllers for them
         # This allows for continuity between different testing runs
-       # self._initialise_PID_controllers()
+        self._initialise_PID_controllers()
 
         self.hardward_initialisation()
 
