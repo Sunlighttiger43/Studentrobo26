@@ -286,7 +286,7 @@ class OlavesRobot:
         Parameters:
             angle (float): The angle to turn in radians. Positive values indicate a left turn, while negative values indicate a right turn.
         """
-        ANGLE_TO_TIME = 14.2  # Multiplier to make the turn more accurate
+        ANGLE_TO_TIME = 4  # Multiplier to make the turn more accurate
         direction = "left" if angle > 0 else "right"
         logger.info(f"[_turn] | Turning {direction} by {abs(angle)} radians.")
 
@@ -378,6 +378,26 @@ class OlavesRobot:
             f"[get_marker_by_id] Marker {marker_id} not visible initially. Initiating search..."
         )
 
+        turned_angle = 0.0
+        # Rotate in increments until we've turned the maximum allowed angle.
+        while turned_angle < search_angle:
+            # Rotate the robot slightly; adjust the time (0.5 seconds here) as needed.
+            self._turn(pi / 16)
+            turned_angle += pi / 16
+
+            # Check the camera feed after the turn.
+            markers = [m for m in self.camera.see() if m.id == marker_id]
+            if markers:
+                marker = sorted(markers, key=lambda x: x.position.distance)[0]
+                logger.info(
+                    f"[get_marker_by_id] Marker {marker_id} found after rotating {turned_angle}."
+                )
+                self.power((0.0, 0.0), 0.0)  # Stop the robot.
+                return marker
+
+        logger.info(
+            f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
+        )
         # Stop the robot if not found
         self.power((0.0, 0.0), 0.0)
         logger.info(
@@ -802,8 +822,8 @@ class OlavesRobot:
         """
         logger.info(f"[move_to_marker] | Moving to Marker: {marker_id}")
 
-        DIST_TOLERANCE = 0.1  # meters
-        ANGLE_TOLERANCE = 0.05  # radians
+        DIST_TOLERANCE = 0.2  # meters
+        ANGLE_TOLERANCE = 0.1  # radians
         DIST_TO_TIME = 0.05  # Base duration for movement
 
         marker = self.get_marker_by_id(marker_id=marker_id)
