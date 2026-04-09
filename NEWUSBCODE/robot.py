@@ -1,7 +1,7 @@
 import logging
 from olaves_robot import OlavesRobot
 from math import pi
-
+ 
 r = OlavesRobot()
 
 def configure_logging():
