@@ -106,7 +106,7 @@ class OlavesRobot:
         # Retrieving PID Gains for isolated angle PID
         isolated_angle_pid_gains = pid_tunings.get(
             "isolated_angle_pid_gains",
-            {"p": 0.4, "i": 0.2, "d": 0.3},  # fallback defaults
+            {"p": 0.4, "i": 0.2, "d": 0.03},  # fallback defaults
         )
 
         # Setting isolated angle PID
@@ -121,10 +121,10 @@ class OlavesRobot:
 
         # Retrieving PID Gains for move functions
         move_dist_pid_gains = pid_tunings.get(
-            "move_pos_dist", {"p": 0.2, "i": 0.05, "d": 0.05}
+            "move_pos_dist", {"p": 0.6, "i": 0.08, "d": 0.03}
         )
         move_angle_pid_gains = pid_tunings.get(
-            "move_pos_angle", {"p": 0.4, "i": 0.1, "d": 0.3}
+            "move_pos_angle", {"p": 0.35, "i": 0.1, "d": 0.3}
         )
 
         # Setting PIDs for move functions
@@ -145,6 +145,10 @@ class OlavesRobot:
             integrator_max=5.0,
         )
 
+    def _reset_PID(self) -> None:
+        self.isolated_angle_pid.reset()
+        self.move_dist_pid.reset()
+        self.move_angle_pid.reset()
     def get_comp_time(self) -> float:
         """
         Returns the time elapsed since the robot was initialised.
@@ -346,7 +350,7 @@ class OlavesRobot:
         self.move_pos((destination_x, destination_y))
 
     def get_marker_by_id(
-        self, marker_id: int, search_angle: float = pi * 2, speed: float = 0.2
+        self, marker_id: int, search_angle: float = pi * 2, speed: float = 0.2, search: bool = False
     ) -> Optional[sr.marker]:
         """
         Retrieves a marker object by its ID.
@@ -362,6 +366,7 @@ class OlavesRobot:
         Returns:
             The marker object if found, or None if the marker could not be located.
         """
+
         logger.info(
             f"[get_marker_by_id] | Retrieving marker object for marker with id {marker_id}"
         )
@@ -374,35 +379,39 @@ class OlavesRobot:
             )
             return marker
 
-        logger.info(
-            f"[get_marker_by_id] Marker {marker_id} not visible initially. Initiating search..."
-        )
+        if search:
+            logger.info(
+                f"[get_marker_by_id] Marker {marker_id} not visible initially. Initiating search..."
+            )
 
-        turned_angle = 0.0
-        # Rotate in increments until we've turned the maximum allowed angle.
-        while turned_angle < search_angle:
-            # Rotate the robot slightly; adjust the time (0.5 seconds here) as needed.
-            self._turn(pi / 16)
-            turned_angle += pi / 16
+            turned_angle = 0.0
+            # Rotate in increments until we've turned the maximum allowed angle.
+            while turned_angle < search_angle:
+                # Rotate the robot slightly; adjust the time (0.5 seconds here) as needed.
+                self._turn(pi / 16)
+                self.sleep(0.3)
+                turned_angle += pi / 16
 
-            # Check the camera feed after the turn.
-            markers = [m for m in self.camera.see() if m.id == marker_id]
-            if markers:
-                marker = sorted(markers, key=lambda x: x.position.distance)[0]
-                logger.info(
-                    f"[get_marker_by_id] Marker {marker_id} found after rotating {turned_angle}."
-                )
-                self.power((0.0, 0.0), 0.0)  # Stop the robot.
-                return marker
+                # Check the camera feed after the turn.
+                markers = [m for m in self.camera.see() if m.id == marker_id]
+                if markers:
+                    marker = sorted(markers, key=lambda x: x.position.distance)[0]
+                    logger.info(
+                        f"[get_marker_by_id] Marker {marker_id} found after rotating {turned_angle}."
+                    )
+                    self.power((0.0, 0.0), 0.0)  # Stop the robot.
+                    return marker
 
-        logger.info(
-            f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
+            logger.info(
+                f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
+            )
+        else:
+            logger.info(
+            f"[get_marker_by_id] Could not find marker {marker_id}."
         )
         # Stop the robot if not found
         self.power((0.0, 0.0), 0.0)
-        logger.info(
-            f"[get_marker_by_id] Could not find marker {marker_id} after rotating {search_angle:.2f} radians."
-        )
+        
         return None
 
     def get_marker_by_idrange(
@@ -822,11 +831,11 @@ class OlavesRobot:
         """
         logger.info(f"[move_to_marker] | Moving to Marker: {marker_id}")
 
-        DIST_TOLERANCE = 0.2  # meters
+        DIST_TOLERANCE = 0.12  # meters
         ANGLE_TOLERANCE = 0.1  # radians
         DIST_TO_TIME = 0.05  # Base duration for movement
 
-        marker = self.get_marker_by_id(marker_id=marker_id)
+        marker = self.get_marker_by_id(marker_id=marker_id, search=True)
         if not marker:
             logger.error(
                 f"[move_to_marker] Marker {marker_id} not found. Aborting turn."
@@ -845,6 +854,8 @@ class OlavesRobot:
         iterations = 0
         consecutive_lost_frames = 0
         max_lost_frames = 5
+
+        self._reset_PID()
 
         while (
             (dist_error > DIST_TOLERANCE or abs(angle_error) > ANGLE_TOLERANCE)
@@ -884,6 +895,10 @@ class OlavesRobot:
                     )
                     break
                 if dist_error <= 3 * DIST_TOLERANCE:
+                    logger.error(
+                        f"[move_to_marker] | Lost Marker at Distance {dist_error}, moving forward this amount."
+                    )
+                    self._move(DIST_TOLERANCE)
                     break
                 logger.warning(
                     f"[move_to_marker] | Lost marker {marker_id}. Conducting search."
@@ -899,7 +914,7 @@ class OlavesRobot:
                 )
 
             iterations += 1
-
+        
         self.power((0.0, 0.0), 0.0)
 
     def _move_to_marker_finalisation(self) -> None:
@@ -1051,20 +1066,29 @@ class OlavesRobot:
 
         Assumes that the box is directly ahead of the robot.
         """
+
+        self._move(-0.1)
         logger.info(f"[pick_hold_box]: Picking up box.")
+
 
         for i in range(8):
             self.stepperuino_write(data="+")
         self.sleep(3)
+        logger.info(f"[pick_hold_box]: Opening Up")
 
-        self.stepperuino_write(data="d")
+        for i in range(15):
+            self.stepperuino_write(data="@")
+        
+        logger.info(f"[pick_hold_box]: Going Down")
         self.sleep(3)
 
         for i in range(8):
             self.stepperuino_write(data="-")
+        logger.info(f"[pick_hold_box]: Going In")
         self.sleep(3)
 
         self.stepperuino_write(data="u")
+        logger.info(f"[pick_hold_box]: Going Up")
         self.sleep(3)
 
     def drop_box(self):
