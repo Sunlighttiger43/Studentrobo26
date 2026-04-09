@@ -23,6 +23,7 @@ def run_robot():
     #wallMarkers = r.WallMarkerzone(r.zone)
     get_AcidBlock()
     r._turn(pi)
+    r.sleep(3)
     go_to_wallmarker()
     
     
