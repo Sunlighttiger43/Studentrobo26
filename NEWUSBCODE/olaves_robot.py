@@ -7,7 +7,7 @@ from pid import PIDController
 
 import numpy as np
 import sr.robot3 as sr
-
+import random
 import logging
 import json
 import os
@@ -53,10 +53,11 @@ class OlavesRobot:
         self.ticks = [0, 0]
 
         self.types_of_markers = {"wall": list(i for i in range(0, 20)),
-            "acidic": list(i for i in range(100, 140)),
+            "acidic": list(i for i in range(100, 140)) + [194],
             "basic": list(i for i in range(140, 180)),
         }
 
+        self.blocks_found = []
         
 
         # Might prove helpful to distinguish between physical robot and simulated robot
@@ -71,7 +72,10 @@ class OlavesRobot:
         # We will load any external PID tunings here and initialise controllers for them
         # This allows for continuity between different testing runs
         self._initialise_PID_controllers()
-
+        # self._move(0.8, mult=2.5)
+        # for i in range(4):
+        #     self._move(1.8, mult=2.5)
+        #     self._turn(pi/2)
         self.hardward_initialisation()
 
     def _load_pid_tunings_from_file(self) -> dict:
@@ -106,7 +110,7 @@ class OlavesRobot:
         # Retrieving PID Gains for isolated angle PID
         isolated_angle_pid_gains = pid_tunings.get(
             "isolated_angle_pid_gains",
-            {"p": 0.4, "i": 0.2, "d": 0.03},  # fallback defaults
+            {"p": 0.4, "i": 0.2, "d": 0.3},  # fallback defaults
         )
 
         # Setting isolated angle PID
@@ -121,10 +125,10 @@ class OlavesRobot:
 
         # Retrieving PID Gains for move functions
         move_dist_pid_gains = pid_tunings.get(
-            "move_pos_dist", {"p": 0.6, "i": 0.08, "d": 0.03}
+            "move_pos_dist", {"p": 0.4, "i": 0.05, "d": 0.05}
         )
         move_angle_pid_gains = pid_tunings.get(
-            "move_pos_angle", {"p": 0.35, "i": 0.1, "d": 0.3}
+            "move_pos_angle", {"p": 0.4, "i": 0.1, "d": 0.3}
         )
 
         # Setting PIDs for move functions
@@ -290,19 +294,19 @@ class OlavesRobot:
         Parameters:
             angle (float): The angle to turn in radians. Positive values indicate a left turn, while negative values indicate a right turn.
         """
-        ANGLE_TO_TIME = 4  # Multiplier to make the turn more accurate
+        ANGLE_TO_TIME = 1.8  # Multiplier to make the turn more accurate
         direction = "left" if angle > 0 else "right"
         logger.info(f"[_turn] | Turning {direction} by {abs(angle)} radians.")
 
         if angle > 0:
             # Turn left
-            self.power((0.4, -0.4), angle / pi * ANGLE_TO_TIME)
+            self.power((0.49, -0.49), angle / pi * ANGLE_TO_TIME)
         else:
             # Turn right
-            self.power((-0.4, 0.4), abs(angle) / pi * ANGLE_TO_TIME)
+            self.power((-0.49, 0.49), abs(angle) / pi * ANGLE_TO_TIME)
         logger.debug(f"[_turn] | Completed turn {direction}.")
 
-    def _move(self, distance: float) -> None:
+    def _move(self, distance: float, mult: float = 1) -> None:
         """
         Performs a dead reckoning move.
 
@@ -312,13 +316,13 @@ class OlavesRobot:
         Parameters:
             distance (float): The distance to move in meters. Positive values move the robot forward, while negative values move it backward.
         """
-        DIST_TO_TIME = 5
+        DIST_TO_TIME = 5 / mult
         direction = "forward" if distance > 0 else "backward"
 
         if distance > 0:
-            self.power((0.4, 0.4), distance * DIST_TO_TIME)
+            self.power((mult*0.4, mult*0.4), distance * DIST_TO_TIME)
         else:
-            self.power((-0.4, -0.4), abs(distance) * DIST_TO_TIME)
+            self.power((mult*-0.4, mult*-0.4), abs(distance) * DIST_TO_TIME)
 
     def _smart_turn(self, angle: float) -> None:
         """
@@ -370,8 +374,11 @@ class OlavesRobot:
         logger.info(
             f"[get_marker_by_id] | Retrieving marker object for marker with id {marker_id}"
         )
+
+        no_marker_count = 0
         # Check if the marker is already in view.
-        markers = [m for m in self.camera.see() if m.id == marker_id]
+        seen_markers = self.camera.see()
+        markers = [m for m in seen_markers if m.id == marker_id]
         if markers:
             marker = sorted(markers, key=lambda x: x.position.distance)[0]
             logger.info(
@@ -388,12 +395,22 @@ class OlavesRobot:
             # Rotate in increments until we've turned the maximum allowed angle.
             while turned_angle < search_angle:
                 # Rotate the robot slightly; adjust the time (0.5 seconds here) as needed.
-                self._turn(pi / 16)
+                self._turn(pi / 6)
                 self.sleep(0.3)
-                turned_angle += pi / 16
+                turned_angle += pi / 6
 
                 # Check the camera feed after the turn.
-                markers = [m for m in self.camera.see() if m.id == marker_id]
+                seen_markers = self.camera.see()
+                markers = [m for m in seen_markers if m.id == marker_id]
+
+                if (len(seen_markers) == 0) and search:
+                    no_marker_count += 1 
+                    if no_marker_count >= 5:
+                        self._move(-0.1)
+                else:
+                    no_marker_count = 0
+
+
                 if markers:
                     marker = sorted(markers, key=lambda x: x.position.distance)[0]
                     logger.info(
@@ -415,8 +432,7 @@ class OlavesRobot:
         return None
 
     def get_marker_by_idrange(
-        self, marker_id_list: list, search_angle: float = pi * 2, speed: float = 0.2
-    ) -> Optional[sr.marker]:
+        self, marker_id_list: list, search_angle: float = pi * 2, speed: float = 0.2, is_coward: bool = True) -> Optional[sr.marker]:
         """
         Retrieves a marker object by its ID.
 
@@ -432,7 +448,11 @@ class OlavesRobot:
             The marker object if found, or None if the marker could not be located.
         """
         # Check if the marker is already in view.
+        seen_markers = self.camera.see()
         markers = [m for m in self.camera.see() if m.id in marker_id_list]
+        if (len(seen_markers) == 0) and is_coward:
+            self._move(-0.1)
+            self._turn(pi/6)
         if markers:
             marker = sorted(markers, key=lambda x: x.position.distance)[0]
             return marker
@@ -441,11 +461,14 @@ class OlavesRobot:
         # Rotate in increments until we've turned the maximum allowed angle.
         while turned_angle < search_angle:
             # Rotate the robot slightly; adjust the time (0.5 seconds here) as needed.
-            self._turn(pi / 16)
-            turned_angle += pi / 16
+            self._turn(pi / 6)
+            turned_angle += pi / 8
 
             # Check the camera feed after the turn.
+            seen_markers = self.camera.see()
             markers = [m for m in self.camera.see() if m.id in marker_id_list]
+            if (len(seen_markers) == 0) and is_coward:
+                self._move(-0.1)
             if markers:
                 marker = sorted(markers, key=lambda x: x.position.distance)[0]
                 self.power((0.0, 0.0), 0.0)  # Stop the robot.
@@ -499,7 +522,7 @@ class OlavesRobot:
 
         iterations = 0
         consecutive_lost_frames = 0
-        max_lost_frames = 5
+        max_lost_frames = 4
 
         while abs(angle_error) > ANGLE_TOLERANCE and iterations < 100:
             angle_correction = self.isolated_angle_pid.getCorrection(angle_error)
@@ -612,7 +635,8 @@ class OlavesRobot:
             duration (float): The duration in seconds for which the motors should run.
             off (bool, optional): Whether to turn off the motors after the duration. Defaults to True.
         """
-        corrected_wheels = self._wonky_wheels_correction(wheels)
+        #corrected_wheels = self._wonky_wheels_correction(wheels)
+        corrected_wheels = wheels
         logger.debug(
             f"Original wheel powers: {wheels}. Corrected wheel powers: {corrected_wheels}."
         )
@@ -651,7 +675,7 @@ class OlavesRobot:
         right: float,
         max_std: float = 3,
         center: float = 2.0,
-        min_power: float = 0.10,
+        min_power: float = 0.15,
     ) -> tuple[float, float]:
         """
         Scales the two motor power values to ensure balanced and stable movement.
@@ -741,9 +765,9 @@ class OlavesRobot:
         Returns:
             Tuple[float, float]: The corrected wheel power values.
         """
-        logger.warning(
-            "_wonky_wheels_correction is not implemented for the virtual league."
-        )
+        # logger.warning(
+        #     "_wonky_wheels_correction is not implemented for the virtual league."
+        # )
         return wheels
 
     def zone_pallets(self) -> List[sr.marker]:
@@ -798,31 +822,8 @@ class OlavesRobot:
                 logger.warning(f"[get_marker_type] | Unknown marker ID: {marker_id}")
                 return None
 
-    def detect_highrise_pallets(self):
-        """
-        Determines the amount of high rise pallets the robot can see for our team.
 
-        Returns:
-            list: [number_of_highrises, on_floor_markers]
-        """
-        logger.info(
-            f"[detect_highrise_pallets] | Determining the number of high rises from our team"
-        )
-
-        markers = self.camera.see()
-        highrisers = 0
-        for marker in markers:
-            if marker.orientation.pitch < 0 and (
-                self.get_marker_type(marker) == "pallet0"
-                or self.get_marker_type(marker) == "pallet1"
-                or self.get_marker_type(marker) == "pallet2"
-                or self.get_marker_type(marker) == "pallet3"
-            ):
-                highrisers = highrisers + 1
-
-        return [highrisers, 6 - highrisers]
-
-    def move_to_marker(self, marker_id: int) -> None:
+    def move_to_marker(self, marker_id: int, random_walk: bool = False) -> bool:
         """
         Moves the robot to a specified marker using PID controllers.
 
@@ -833,19 +834,21 @@ class OlavesRobot:
 
         DIST_TOLERANCE = 0.12  # meters
         ANGLE_TOLERANCE = 0.1  # radians
-        DIST_TO_TIME = 0.05  # Base duration for movement
+        DIST_TO_TIME = 0.07  # Base duration for movement
 
         marker = self.get_marker_by_id(marker_id=marker_id, search=True)
         if not marker:
             logger.error(
                 f"[move_to_marker] Marker {marker_id} not found. Aborting turn."
             )
-            return
+            return False
 
         init_dist = marker.position.distance / 1000.0  # Convert mm to meters
 
         dist_error = init_dist
         angle_error = marker.position.horizontal_angle
+
+        prev_dist = None
 
         logger.debug(
             f"[move_to_marker] | Initial Distance Error: {dist_error:.3f} m, Initial Angle Error: {angle_error:.3f} rad"
@@ -854,14 +857,16 @@ class OlavesRobot:
         iterations = 0
         consecutive_lost_frames = 0
         max_lost_frames = 5
+        stationary_consecutive = 0
 
         self._reset_PID()
 
         while (
             (dist_error > DIST_TOLERANCE or abs(angle_error) > ANGLE_TOLERANCE)
-            and iterations < 1000
+            and iterations < 50
             and consecutive_lost_frames < max_lost_frames
-        ):
+        ):  
+            prev_dist = dist_error
             dist_correction = -self.move_dist_pid.getCorrection(dist_error)
             angle_correction = self.move_angle_pid.getCorrection(angle_error)
 
@@ -889,45 +894,59 @@ class OlavesRobot:
 
             marker = self.get_marker_by_id(marker_id)
             if not marker:
-                if consecutive_lost_frames >= max_lost_frames:
+                
+                if consecutive_lost_frames >= max_lost_frames:    
                     logger.error(
                         "[move_to_marker] | Marker lost too many times, aborting."
                     )
-                    break
+                   
+                    return False
                 if dist_error <= 3 * DIST_TOLERANCE:
                     logger.error(
                         f"[move_to_marker] | Lost Marker at Distance {dist_error}, moving forward this amount."
                     )
-                    self._move(DIST_TOLERANCE)
-                    break
+                    if marker_id not in self.types_of_markers["wall"]:
+                        self._move(0.3)
+                        return self._move_to_marker_finalisation()
+                    self.power((0.0, 0.0), 0.0)
+                    
+                    return True
                 logger.warning(
                     f"[move_to_marker] | Lost marker {marker_id}. Conducting search."
                 )
                 consecutive_lost_frames += 1
                 continue
             else:
-                consecutive_lost_frames = 0
+                prev_dist = dist_error
                 angle_error = marker.position.horizontal_angle
                 dist_error = marker.position.distance / 1000.0
                 logger.debug(
                     f"[move_to_marker] Updated Distance Error: {dist_error:.3f} m, Updated Angle Error: {angle_error} rads."
                 )
-
+                if abs(dist_error - prev_dist) <= 1e-2:
+                    stationary_consecutive += 1
+                    if stationary_consecutive >= 5:
+                        self._move(-0.5)
+                        self._turn(-pi/5)
+                else:
+                    stationary_consecutive = 0
+                
             iterations += 1
         
         self.power((0.0, 0.0), 0.0)
+        return False
 
-    def _move_to_marker_finalisation(self) -> None:
+    def _move_to_marker_finalisation(self) -> bool:
         """
         Finalises the motion for move_to_marker using the ultrasound sensor.
         """
         logger.info(
             f"[_move_to_marker_finalisation] | Minimising distance between robot and marker in the absence of camera feedback"
         )
-        DIST_TOLERANCE = 0.01  # meters
+        DIST_TOLERANCE = 0.03  # meters
 
         init_dist = (
-            self.arduino.ultrasound_measure(2, 3) / 1000.0
+            self.arduino.ultrasound_measure(7, 6) / 1000.0
         )  # Convert mm to meters
 
         dist_error = init_dist
@@ -937,19 +956,30 @@ class OlavesRobot:
         )
 
         iterations = 0
-        while dist_error > DIST_TOLERANCE and iterations != 100:
+        while (dist_error > DIST_TOLERANCE) and (dist_error < 0.3) and iterations != 30:
+            
+
+            self._move(dist_error * 0.7)
+
+            dist_error = self.arduino.ultrasound_measure(7, 6) / 1000.0
+            iterations += 1
             logger.debug(
                 f"[_move_to_marker_finalisation] | Moving forward {dist_error}m"
             )
 
-            self._smart_move(dist_error * 0.7)
+        if dist_error >= 0.30:
+            self._move(-0.5)
+            return False
 
-            dist_error = self.arduino.ultrasound_measure(2, 3) / 1000.0
-            iterations += 1
+        if iterations >= 30:
+            self.power((0.0, 0.0), 0.0)
+            return False
 
         logger.debug(
             "[_move_to_marker_finalisation] | Marker in position. Exiting Movement"
         )
+
+        return True
 
     def move_pos(self, target_position: Tuple[float, float]) -> None:
         """
@@ -1067,7 +1097,7 @@ class OlavesRobot:
         Assumes that the box is directly ahead of the robot.
         """
 
-        self._move(-0.1)
+        self._move(-0.08)
         logger.info(f"[pick_hold_box]: Picking up box.")
 
 
@@ -1095,6 +1125,11 @@ class OlavesRobot:
         logger.info(f"[drop_box]: Dropping box.")
         for i in range(8):
             self.stepperuino_write(data="+")
+        self.sleep(3)
+
+        for i in range(8):
+            self.stepperuino_write(data="-")
+        logger.info(f"[drop_box]: Reseting Arms")
         self.sleep(3)
 
     def hardward_initialisation(self) -> None:
